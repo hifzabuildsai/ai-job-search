@@ -123,7 +123,13 @@ def fetch_with_urllib(url: str, out: Path) -> str:
     if encoding == "gzip":
         body = gzip.decompress(body)
     elif encoding == "deflate":
-        body = zlib.decompress(body, -zlib.MAX_WBITS)
+        try:
+            # HTTP "deflate" is the zlib-wrapped format. Some servers
+            # historically sent a raw DEFLATE stream, so retain that as a
+            # compatibility fallback.
+            body = zlib.decompress(body)
+        except zlib.error:
+            body = zlib.decompress(body, -zlib.MAX_WBITS)
     if len(body) > MAX_BYTES:
         raise RuntimeError(f"response exceeds {MAX_BYTES} bytes after decompression")
     out.write_bytes(body)

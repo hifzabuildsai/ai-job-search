@@ -59,6 +59,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             body = _gzip.compress(b"<p>" + b"x" * 5000 + b"</p>")
             self.send_response(200)
             self.send_header("Content-Encoding", "gzip")
+        elif self.path in ("/deflate", "/deflate-raw"):
+            import zlib as _zlib
+            compressor = _zlib.compressobj(wbits=-_zlib.MAX_WBITS)
+            body = (compressor.compress(PAGE.encode("utf-8")) + compressor.flush()
+                    if self.path == "/deflate-raw" else _zlib.compress(PAGE.encode("utf-8")))
+            self.send_response(200)
+            self.send_header("Content-Encoding", "deflate")
         else:
             body = b"nope"
             self.send_response(404)
@@ -213,6 +220,21 @@ class Fetching(FetchPageFixture):
         self.assertEqual(code, 2, out + err)
         self.assertIn("exceeds", err)
         self.assertFalse(self.out.exists())
+
+    def test_urllib_fallback_decodes_standard_deflate_response(self):
+        # RFC 9110 defines deflate as a zlib-wrapped stream. The urllib
+        # fallback must accept that standard form rather than treating it as
+        # raw DEFLATE and turning a valid page into a transport error.
+        self._without_curl()
+        code, out, err = self.run_main(f"{self.base}/deflate", "--out", str(self.out))
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.out.read_text(encoding="utf-8"), PAGE)
+
+    def test_urllib_fallback_keeps_accepting_raw_deflate_response(self):
+        self._without_curl()
+        code, out, err = self.run_main(f"{self.base}/deflate-raw", "--out", str(self.out))
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.out.read_text(encoding="utf-8"), PAGE)
 
     def test_urllib_fallback_when_curl_missing(self):
         orig_which = fetch_page.shutil.which
